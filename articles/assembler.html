@@ -1,0 +1,109 @@
+
+<html>
+    <head>
+        <title>What i have learnt so far creating an assembler in Rust! - Proxin</title>
+        <link rel="stylesheet" href="../index.css">
+    </head>
+    <body>
+        <div class="left-bar">
+            <a href="../index.html"><img src="../assets/tux.png"></a>
+
+            <h1>Proxin</h1>
+            <p>15 year old, norway</p>
+        </div>
+        <div class="content">
+            <h1>What i have learnt so far creating an assembler in Rust!</h1>
+            <p>
+                Recently i decided i should try to write my own assembler, this is
+                an interesting topic as i love low level concepts and so far in my computer
+                journey i have had little knowledge about machine code.
+                <br>
+            </p>
+
+            <h1>Project Setup</h1>
+            <p>
+                First i started by initalizing an empty rust project with the following folder structure
+            </p>
+
+            <pre>
+                ├── Cargo.lock
+                ├── Cargo.toml
+                ├── LICENSE
+                ├── program
+                ├── program.fasm
+                ├── program.o
+                ├── README.md
+                └── src
+                    ├── main.rs
+                    ├── codegen
+                    │   └── mod.rs
+                    ├── parser
+                    │   ├── lexer
+                    │   │   └── mod.rs
+                    │   └── mod.rs
+                    └── preprocessor
+                        └── mod.rs
+            </pre>
+
+            <h1>Parsing assembly</h1>
+            <p>
+                The first obstacle of writing an assembler is parsing the assembly,
+                thankfully i have experience with writing compilers so this was an easy
+                task.
+                <br>
+                <br>
+                I started by creating a lexer which would allow me to retrieve lexed
+                lines when i wanted trough the `next_line` function, i achieved this by
+                having a structure with a BufReader to the source file, i could then use
+                the `read_line` function from `std::io::BufRead` to read line-by-line
+                from our source file.
+                <br>
+                <br>
+                Long story short, i implemented a very simple lexer and parsed it into
+                an enum which called `Inst` as it represented an x86_64 instuction.
+            </p>
+
+            <h1>ModR/M Encoding</h1>
+            <p>
+                The next obstacle would be a little harder, i had to figure out how
+                x86_64 instructions where encoded, this was new to me as i had never
+                worked with bytecode before, in addition this i had a hard time understanding the
+                <a href="https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html">intel programmers manual</a>
+                due to its formal nature.
+                <br>
+                <br>
+                After a good amount of research i managed to cook up a function that would
+                encode ModR/M with the mod, reg and rm parameters. <a href="https://en.wikipedia.org/wiki/ModR/M">Wikipedia</a> had a really great
+                illustration that made it alot easier to understand so i must give them
+                credit where its due.
+            </p>
+
+            <pre>
+                // page 44 @ intel programmers manual
+                fn format_modrm(mod_: u8, reg: u8, rm: u8) -&gt; u8 {
+                    (mod_ &lt;&lt; 6) | (reg &lt;&lt; 3) | rm
+                }
+            </pre>
+
+            <h1>Summary</h1>
+            <p>
+                Writing an assembler in rust was a very great way to learn the x86_64 architecture,
+                i would definetly recomend the reader to give it a try as its both great for learning
+                and for fun.
+                <br>
+                <br>
+                I need to note that this article only scratches the surface of assemblers and
+                while creating the assembler i faced many problems i never mentioned in this article,
+                in addition to this, i have an idea in the back of my head to maybe create a x86_64 emulator
+                as i now know x86_64 instructions are encoded, this would be a fun task but ill leave that for later.
+                <br>
+                <br>
+                The complete source code can be found <a href="https://github.com/proxin187/asm-rs">here</a>
+            </p>
+
+            <h4>Copyright 2024 Proxin</h4>
+        </div>
+    </body>
+</html>
+
+
